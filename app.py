@@ -14,17 +14,20 @@ REMATCH_API_URL = "https://esports.playrematch.com/api/tournaments?statuses=pend
 def scout_rematch():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json"
+        "Accept": "application/json",
+        "Referer": "https://esports.playrematch.com/tournaments" # Added Referer for security bypass
     }
     try:
         print("--- Rematch Official API Scout Starting ---")
         response = requests.get(REMATCH_API_URL, headers=headers)
+        
         if response.status_code == 200:
             data = response.json()
-            # Most APIs wrap the list in a key like 'data' or 'results'
             return data if isinstance(data, list) else data.get('data', [])
         else:
             print(f"❌ API Error: Status {response.status_code}")
+            # THIS IS THE CRITICAL DEBUG LINE:
+            print(f"🔍 Server Reason: {response.text}") 
     except Exception as e:
         print(f"❌ Connection Crash: {e}")
     return []
