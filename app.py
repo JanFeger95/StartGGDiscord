@@ -12,32 +12,35 @@ CACHE_FILE = "posted_ids.txt"
 REMATCH_API_URL = "https://esports.playrematch.com/api/tournaments?statuses=pending&start_after_now=true&sort=scheduled_asc"
 
 def scout_rematch():
+    # We now check both Upcoming and Ongoing URLs
+    targets = [
+        "https://esports.playrematch.com/api/tournaments?statuses=pending&start_after_now=true&sort=scheduled_asc",
+        "https://esports.playrematch.com/api/tournaments?statuses=pending%2Crunning&start_before_now=true&sort=scheduled_desc"
+    ]
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
         "Referer": "https://esports.playrematch.com/tournaments",
-        # FIX: "items=0-" is safer than "0-99"
-        "Range": "items=0-" 
+        "Range": "items=0-49" # Re-added a small range for stability
     }
-    try:
-        print("--- Rematch Official API Scout Starting ---")
-        response = requests.get(REMATCH_API_URL, headers=headers)
-        
-        # Success statuses for range requests
-        if response.status_code in [200, 206]:
-            data = response.json()
-            results = data if isinstance(data, list) else data.get('data', [])
-            return results
-        # If still 416, it almost certainly means the "Upcoming" list is empty
-        elif response.status_code == 416:
-            print("ℹ️ Info: No upcoming tournaments found on Rematch (List is empty).")
-            return []
-        else:
-            print(f"❌ API Error: Status {response.status_code}")
-            print(f"🔍 Server Reason: {response.text}")
-    except Exception as e:
-        print(f"❌ Connection Crash: {e}")
-    return []
+    
+    combined_results = []
+    
+    for url in targets:
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code in [200, 206]:
+                data = response.json()
+                items = data if isinstance(data, list) else data.get('data', [])
+                combined_results.extend(items)
+            elif response.status_code == 416:
+                # 416 just means this specific list is empty right now
+                continue 
+        except Exception as e:
+            print(f"⚠️ Error checking URL: {e}")
+            
+    return combined_results
 
 def main():
     # 3. State Management (Avoid Duplicates)
