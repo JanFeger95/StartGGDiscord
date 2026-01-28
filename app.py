@@ -30,20 +30,22 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
     }
 }"""
 
+import urllib.parse
+
 def scout_battlefy():
-    # 1. Calculate the dynamic date range for the 7-day window
+    # 1. Calculate dynamic dates for the 7-day scout
     now = datetime.datetime.now(datetime.timezone.utc)
-    # Start at the beginning of today, end 7 days from now
-    start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = start_date + datetime.timedelta(days=7)
+    # Start searching from yesterday to catch "today's" matches safely
+    start_date = now - datetime.timedelta(days=1)
+    end_date = now + datetime.timedelta(days=8)
 
-    # 2. Format dates exactly like Battlefy's XHR requirements
+    # 2. Format dates exactly like Battlefy's XHR
     # Format: Tue Jan 27 2026 23:00:00 GMT+0000
-    date_format = "%a %b %d %Y %H:%M:%S GMT+0000"
-    start_str = urllib.parse.quote(start_date.strftime(date_format))
-    end_str = urllib.parse.quote(end_date.strftime(date_format))
+    date_fmt = "%a %b %d %Y %H:%M:%S GMT+0000"
+    start_str = urllib.parse.quote(start_date.strftime(date_fmt))
+    end_str = urllib.parse.quote(end_date.strftime(date_fmt))
 
-    # 3. Dynamic URL using the Game ID you found (page=0 for first results)
+    # 3. Construct URL (Using page=0 for first results)
     url = f"https://search.battlefy.com/tournament/homepage/rematch?&&type=&currentLadderEndTime=&showLadderTournaments=true&start={start_str}&end={end_str}&page=0"
     
     headers = {
@@ -52,14 +54,20 @@ def scout_battlefy():
     }
     
     try:
-        print(f"Scouting Battlefy: {start_date.date()} to {end_date.date()}...")
+        print(f"--- Battlefy Diagnostic ---")
+        print(f"Scouting URL: {url}")
         response = requests.get(url, headers=headers)
+        
         if response.status_code == 200:
             data = response.json()
-            # Handle if Battlefy returns a list or a dictionary
-            return data if isinstance(data, list) else data.get('tournaments', [])
+            # If data is a list, return it. If it's a dict, find the list
+            results = data if isinstance(data, list) else data.get('tournaments', data.get('results', []))
+            print(f"Battlefy returned {len(results)} tournaments.")
+            return results
+        else:
+            print(f"Battlefy Error: Status {response.status_code}")
     except Exception as e:
-        print(f"Battlefy Error: {e}")
+        print(f"Battlefy Script Crash: {e}")
     return []
 
 def make_embeds(name, url, start_ts, location, contact, images):
