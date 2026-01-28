@@ -30,37 +30,46 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
     }
 }"""
 
-from curl_cffi import requests as stealth_requests
-import urllib.parse
+from playwright.sync_api import sync_playwright
+import json
 
 def scout_battlefy():
-    now = datetime.datetime.now(datetime.timezone.utc)
-    start_date = now - datetime.timedelta(days=1)
-    end_date = now + datetime.timedelta(days=10)
-
-    date_fmt = "%a %b %d %Y %H:%M:%S GMT+0000"
-    start_str = urllib.parse.quote(start_date.strftime(date_fmt))
-    end_str = urllib.parse.quote(end_date.strftime(date_fmt))
-
-    url = f"https://search.battlefy.com/tournament/homepage/rematch?&&start={start_str}&end={end_str}&showLadderTournaments=true&page=0"
+    results = []
+    # This URL is the actual browse page where the data is triggered
+    target_url = "https://battlefy.com/browse/rematch"
     
-    try:
-        print(f"--- Battlefy Stealth Scout (Browser Impersonation) ---")
-        # 'impersonate' tells the library to mimic Chrome's TLS handshake
-        response = stealth_requests.get(url, impersonate="chrome110", timeout=30)
+    with sync_playwright() as p:
+        print("--- Battlefy Browser Scout Starting ---")
+        browser = p.chromium.launch(headless=True)
+        # Mimic a real person's screen size and browser signature
+        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        page = context.new_page()
+
+        # This 'catch' function triggers whenever the browser talks to an API
+        def handle_response(response):
+            if "search.battlefy.com/tournament/homepage/rematch" in response.url:
+                try:
+                    data = response.json()
+                    # We found the JSON data! Store it.
+                    tourneys = data if isinstance(data, list) else data.get('tournaments', [])
+                    results.extend(tourneys)
+                    print(f"Captured {len(tourneys)} tournaments from network traffic.")
+                except:
+                    pass
+
+        page.on("response", handle_response)
         
-        if response.status_code == 200:
-            data = response.json() # This will now work because we get real JSON
-            results = data if isinstance(data, list) else data.get('tournaments', [])
-            print(f"Success! Found {len(results)} items on Battlefy.")
-            return results
-        else:
-            print(f"Battlefy Error: {response.status_code}")
-            # Log the first 100 characters of the error page to see what's happening
-            print(f"Server Response: {response.text[:100]}")
-    except Exception as e:
-        print(f"Battlefy Critical Failure: {e}")
-    return []
+        try:
+            # Go to the site and wait for it to stop loading data
+            page.goto(target_url, wait_until="networkidle", timeout=60000)
+            # Small extra wait to ensure all 'Upcoming' filters finish
+            page.wait_for_timeout(5000) 
+        except Exception as e:
+            print(f"Browser timeout or error: {e}")
+        finally:
+            browser.close()
+            
+    return results
 
 def make_embeds(name, url, start_ts, location, contact, images):
     profile = next((img["url"] for img in images if img["type"] == 'profile'), None)
