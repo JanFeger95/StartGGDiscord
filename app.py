@@ -31,41 +31,44 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
 }"""
 
 from playwright.sync_api import sync_playwright
-import json
+import time
 
 def scout_battlefy():
+    print("--- Battlefy Heavy Scout Activated ---")
     results = []
-    # This URL is the actual browse page where the data is triggered
-    target_url = "https://battlefy.com/browse/rematch"
     
     with sync_playwright() as p:
-        print("--- Battlefy Browser Scout Starting ---")
-        browser = p.chromium.launch(headless=True)
-        # Mimic a real person's screen size and browser signature
-        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+        # Launch with specific flags to avoid common GitHub Action headless crashes
+        browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         page = context.new_page()
 
-        # This 'catch' function triggers whenever the browser talks to an API
-        def handle_response(response):
-            if "search.battlefy.com/tournament/homepage/rematch" in response.url:
-                try:
-                    data = response.json()
-                    # We found the JSON data! Store it.
-                    tourneys = data if isinstance(data, list) else data.get('tournaments', [])
-                    results.extend(tourneys)
-                    print(f"Captured {len(tourneys)} tournaments from network traffic.")
-                except:
-                    pass
-
-        page.on("response", handle_response)
-        
         try:
-            # Go to the site and wait for it to stop loading data
-            page.goto(target_url, wait_until="networkidle", timeout=60000)
-            # Small extra wait to ensure all 'Upcoming' filters finish
-            page.wait_for_timeout(5000) 
+            # 1. Prepare the "Trap": Wait specifically for the search response
+            # We use a lambda to catch any URL containing the 'homepage/rematch' data
+            print("Setting up network trap...")
+            
+            with page.expect_response(lambda r: "search.battlefy.com/tournament/homepage/rematch" in r.url, timeout=45000) as response_info:
+                # 2. Trigger the page load
+                page.goto("https://battlefy.com/browse/rematch", wait_until="domcontentloaded")
+                print("Page triggered. Waiting for Battlefy API to speak...")
+                
+                # 3. Capture the data
+                response = response_info.value
+                if response.status_code == 200:
+                    data = response.json()
+                    results = data if isinstance(data, list) else data.get('tournaments', [])
+                    print(f"✅ Success! Captured {len(results)} tournaments from the background stream.")
+                else:
+                    print(f"❌ Trap caught an error: Status {response.status_code}")
+
         except Exception as e:
-            print(f"Browser timeout or error: {e}")
+            print(f"⚠️ Scout Timeout: The Battlefy API didn't respond in time. Error: {e}")
+            # Diagnostic: Take a screenshot if it fails so you can see what the bot saw
+            # (Requires adding a 'screenshots' folder to your repo)
+            # page.screenshot(path="debug_battlefy.png") 
         finally:
             browser.close()
             
