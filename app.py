@@ -6,13 +6,14 @@ import requests
 import pysmashgg
 from pysmashgg.api import run_query
 
-STATE = os.environ["STATE"]
+# Remove STATE as it's no longer used in the query
 TIMEZONE = os.environ["TIMEZONE"]
 GAME_ID = os.environ["GAME_ID"]
-SHOW_ONLINE_EVENTS = False
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 STARTGG_TOKEN = os.environ["STARTGG_TOKEN"]
-CUSTOM_QUERY = """query TournamentsByState($state: String!, $page: Int!, $videogameId: ID!) {
+
+# Modified Query: Removed $state variable and addrState filter
+CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
     tournaments(query: {
         perPage: 32
         page: $page
@@ -21,7 +22,6 @@ CUSTOM_QUERY = """query TournamentsByState($state: String!, $page: Int!, $videog
             videogameIds: [
                 $videogameId
             ]
-            addrState: $state
         }
     }) {
         nodes {
@@ -61,30 +61,22 @@ CUSTOM_QUERY = """query TournamentsByState($state: String!, $page: Int!, $videog
     }
 }"""
 
-
 def tournaments_filter(response, earliestTime: datetime, latestTime: datetime, useCreatedAt: bool):
-    if response['data']['tournaments'] is None:
-        return
+    if not response.get('data') or not response['data'].get('tournaments'):
+        return []
 
-    if response['data']['tournaments']['nodes'] is None:
-        return
+    nodes = response['data']['tournaments'].get('nodes')
+    if not nodes:
+        return []
 
     tournaments = []
-
-    for node in response['data']['tournaments']['nodes']:
-        checkDate = node['startAt']
-        if useCreatedAt:
-            checkDate = node["createdAt"]
-        if checkDate < earliestTime.timestamp():
-            continue
-        if checkDate > latestTime.timestamp():
-            continue
-
-        tournaments.append(node)
+    for node in nodes:
+        checkDate = node["createdAt"] if useCreatedAt else node['startAt']
+        if earliestTime.timestamp() <= checkDate <= latestTime.timestamp():
+            tournaments.append(node)
 
     tournaments.sort(key=lambda t: t["startAt"])
     return tournaments
-
 
 def make_embeds(tournament):
     profile = None
@@ -94,23 +86,23 @@ def make_embeds(tournament):
             profile = {"url": image["url"]}
         if image["type"] == 'banner':
             banner = {"url": image["url"]}
+    
+    # Formats date based on your Berlin timezone
     date = datetime.datetime.fromtimestamp(tournament["startAt"], tz=pytz.timezone(TIMEZONE)).strftime('%A, %B %d')
+    
     return [
         {
             "title": tournament["name"],
             "url": f'https://start.gg/{tournament["slug"]}',
             "color": 102204,
-            "description": f'{date}\n{tournament["venueAddress"]}\nPrimary Contact: {tournament["primaryContact"]}',
+            "description": f'📅 **Date:** {date}\n📍 **Location:** {tournament["venueAddress"] or "Online"}\n👤 **Contact:** {tournament["primaryContact"] or "N/A"}',
             "thumbnail": profile,
             "image": banner,
-            "footer": {"text": "Created by Suddy - LOVE&PEACE"},
+            "footer": {"text": "Rematch Scout - Bulletproof Edition"},
         }
     ]
 
-
 def main():
-    """Start the script."""
-
     tz = pytz.timezone(TIMEZONE)
     this_morning = datetime.datetime.combine(datetime.datetime.now(tz).date(), datetime.time(0, 0, tzinfo=tz), tzinfo=tz)
     tomorrow = this_morning + datetime.timedelta(days=1)
@@ -118,43 +110,33 @@ def main():
     next_week = this_morning + datetime.timedelta(days=8)
 
     smash = pysmashgg.SmashGG(STARTGG_TOKEN, True)    
-    variables = {"state": STATE, "page": 1, "videogameId": GAME_ID}
+    # Removed "state" from variables
+    variables = {"page": 1, "videogameId": GAME_ID}
+    
     response = run_query(CUSTOM_QUERY, variables, smash.header, smash.auto_retry)
+    
     tournaments_tomorrow = tournaments_filter(response, tomorrow, overmorrow, False)
     tournaments_created_recently = tournaments_filter(response, this_morning, tomorrow, True)
+
+    # Post Events Tomorrow
     for tournament in tournaments_tomorrow:
         payload = {
-            "username": "Events Tomorrow",
-            "avatar_url": "https://miro.medium.com/v2/resize:fit:1400/1*YAC3gljr8cMB4ZPyf3CMLA.png",
+            "username": "Match Tomorrow!",
             "embeds": make_embeds(tournament),
         }
         requests.post(WEBHOOK_URL, json=payload)
+    
     time.sleep(1)
-    tournaments_this_week = []
-    if this_morning.weekday() == 5:
-        tournaments_this_week = tournaments_filter(response, tomorrow, next_week, False)
-        for tournament in tournaments_this_week:
-            if tournaments_tomorrow.count(tournament) > 0:
-                continue
-            payload = {
-                "username": "Events Later This Week",
-                "avatar_url": "https://miro.medium.com/v2/resize:fit:1400/1*YAC3gljr8cMB4ZPyf3CMLA.png",
-                "embeds": make_embeds(tournament),
-            }
-            requests.post(WEBHOOK_URL, json=payload)
-    time.sleep(1)
+
+    # Post Recently Created Events
     for tournament in tournaments_created_recently:
-        if tournaments_tomorrow.count(tournament) > 0:
-            continue
-        if tournaments_this_week.count(tournament) > 0:
+        if tournament in tournaments_tomorrow:
             continue
         payload = {
-            "username": "Events Created Today",
-            "avatar_url": "https://miro.medium.com/v2/resize:fit:1400/1*YAC3gljr8cMB4ZPyf3CMLA.png",
+            "username": "New Tournament Discovered",
             "embeds": make_embeds(tournament),
         }
         requests.post(WEBHOOK_URL, json=payload)
-
 
 if __name__ == "__main__":
     main()
