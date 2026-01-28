@@ -15,18 +15,20 @@ def scout_rematch():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
-        "Referer": "https://esports.playrematch.com/tournaments" # Added Referer for security bypass
+        "Referer": "https://esports.playrematch.com/tournaments",
+        # THIS IS THE FIX: Telling the server to send items 0 through 99
+        "Range": "items=0-99" 
     }
     try:
         print("--- Rematch Official API Scout Starting ---")
         response = requests.get(REMATCH_API_URL, headers=headers)
         
-        if response.status_code == 200:
+        # 206 = Partial Content (common with Range)
+        if response.status_code in [200, 206]: 
             data = response.json()
             return data if isinstance(data, list) else data.get('data', [])
         else:
             print(f"❌ API Error: Status {response.status_code}")
-            # THIS IS THE CRITICAL DEBUG LINE:
             print(f"🔍 Server Reason: {response.text}") 
     except Exception as e:
         print(f"❌ Connection Crash: {e}")
