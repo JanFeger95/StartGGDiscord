@@ -31,44 +31,59 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
 }"""
 
 from playwright.sync_api import sync_playwright
-import time
+import json
 
 def scout_battlefy():
-    print("--- Battlefy Heavy Scout Activated ---")
+    print("--- Battlefy Strategic Scout Starting ---")
     results = []
     
     with sync_playwright() as p:
-        # Launch with specific flags to avoid common GitHub Action headless crashes
-        browser = p.chromium.launch(headless=True, args=["--disable-gpu", "--no-sandbox"])
+        # Launch with 'Stealth' arguments to disable bot-tracking flags
+        browser = p.chromium.launch(headless=True, args=[
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-infobars"
+        ])
+        
+        # Set a realistic browser fingerprint
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={'width': 1280, 'height': 800}
         )
         page = context.new_page()
 
         try:
-            # 1. Prepare the "Trap": Wait specifically for the search response
-            # We use a lambda to catch any URL containing the 'homepage/rematch' data
-            print("Setting up network trap...")
+            # 1. Start the 'Trap' for the background data
+            print("Trap set. Opening Battlefy...")
             
-            with page.expect_response(lambda r: "search.battlefy.com/tournament/homepage/rematch" in r.url, timeout=45000) as response_info:
-                # 2. Trigger the page load
-                page.goto("https://battlefy.com/browse/rematch", wait_until="domcontentloaded")
-                print("Page triggered. Waiting for Battlefy API to speak...")
-                
-                # 3. Capture the data
-                response = response_info.value
-                if response.status_code == 200:
-                    data = response.json()
-                    results = data if isinstance(data, list) else data.get('tournaments', [])
-                    print(f"✅ Success! Captured {len(results)} tournaments from the background stream.")
-                else:
-                    print(f"❌ Trap caught an error: Status {response.status_code}")
+            # Use a more flexible listener to catch ANY search response
+            def on_response(response):
+                if "search.battlefy.com" in response.url and response.status_code == 200:
+                    try:
+                        data = response.json()
+                        tourneys = data if isinstance(data, list) else data.get('tournaments', [])
+                        if tourneys:
+                            results.extend(tourneys)
+                            print(f"✅ Intercepted {len(tourneys)} tournaments from API.")
+                    except: pass
+
+            page.on("response", on_response)
+            
+            # 2. Navigate and wait for content (not just the API)
+            page.goto("https://battlefy.com/browse/rematch", wait_until="networkidle", timeout=60000)
+            
+            # 3. FALLBACK: If API interception failed, scrape the UI directly
+            if not results:
+                print("⚠️ API Trap failed. Falling back to Screen Reading...")
+                page.wait_for_selector(".tournament-name", timeout=10000)
+                cards = page.query_selector_all(".tournament-card-container") # Verify this selector in F12
+                for card in cards:
+                    name = card.query_selector(".tournament-name").inner_text()
+                    results.append({"name": name, "url": "https://battlefy.com/browse/rematch"})
+                print(f"✅ Screen Reading found {len(results)} items.")
 
         except Exception as e:
-            print(f"⚠️ Scout Timeout: The Battlefy API didn't respond in time. Error: {e}")
-            # Diagnostic: Take a screenshot if it fails so you can see what the bot saw
-            # (Requires adding a 'screenshots' folder to your repo)
-            # page.screenshot(path="debug_battlefy.png") 
+            print(f"❌ Critical Failure: {e}")
         finally:
             browser.close()
             
