@@ -33,20 +33,21 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
 import urllib.parse
 
 def scout_battlefy():
-    # 1. Calculate dynamic dates for the 7-day scout
+    # Use the internal ID we found in your Network logs - much more stable!
+    game_id = "688fb14665e8c2002b5f77cc"
+    
+    # Calculate dates: Start from yesterday to ensure we don't miss 'live' matches
     now = datetime.datetime.now(datetime.timezone.utc)
-    # Start searching from yesterday to catch "today's" matches safely
     start_date = now - datetime.timedelta(days=1)
-    end_date = now + datetime.timedelta(days=8)
+    end_date = now + datetime.timedelta(days=10)
 
-    # 2. Format dates exactly like Battlefy's XHR
-    # Format: Tue Jan 27 2026 23:00:00 GMT+0000
+    # Format the URL exactly like the working XHR request from your browser
     date_fmt = "%a %b %d %Y %H:%M:%S GMT+0000"
     start_str = urllib.parse.quote(start_date.strftime(date_fmt))
     end_str = urllib.parse.quote(end_date.strftime(date_fmt))
 
-    # 3. Construct URL (Using page=0 for first results)
-    url = f"https://search.battlefy.com/tournament/homepage/rematch?&&type=&currentLadderEndTime=&showLadderTournaments=true&start={start_str}&end={end_str}&page=0"
+    # We use 'page=0' to ensure we get the very first results
+    url = f"https://search.battlefy.com/tournament/homepage/rematch?&&start={start_str}&end={end_str}&showLadderTournaments=true&page=0"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -55,19 +56,23 @@ def scout_battlefy():
     
     try:
         print(f"--- Battlefy Diagnostic ---")
-        print(f"Scouting URL: {url}")
+        print(f"Requesting URL: {url}")
         response = requests.get(url, headers=headers)
         
         if response.status_code == 200:
-            data = response.json()
-            # If data is a list, return it. If it's a dict, find the list
-            results = data if isinstance(data, list) else data.get('tournaments', data.get('results', []))
-            print(f"Battlefy returned {len(results)} tournaments.")
+            results = response.json()
+            # Battlefy usually returns a direct list for this specific 'homepage' URL
+            print(f"Success! Battlefy found {len(results)} tournaments in the raw data.")
+            
+            # Print the names of found tournaments in the logs so we can see them
+            for item in results[:5]: 
+                print(f"Found in Pipe: {item.get('name')}")
+                
             return results
         else:
-            print(f"Battlefy Error: Status {response.status_code}")
+            print(f"Battlefy Error: Received Status {response.status_code}")
     except Exception as e:
-        print(f"Battlefy Script Crash: {e}")
+        print(f"Battlefy Connection Crash: {e}")
     return []
 
 def make_embeds(name, url, start_ts, location, contact, images):
