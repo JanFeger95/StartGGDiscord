@@ -16,20 +16,25 @@ def scout_rematch():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
         "Referer": "https://esports.playrematch.com/tournaments",
-        # THIS IS THE FIX: Telling the server to send items 0 through 99
-        "Range": "items=0-99" 
+        # FIX: "items=0-" is safer than "0-99"
+        "Range": "items=0-" 
     }
     try:
         print("--- Rematch Official API Scout Starting ---")
         response = requests.get(REMATCH_API_URL, headers=headers)
         
-        # 206 = Partial Content (common with Range)
-        if response.status_code in [200, 206]: 
+        # Success statuses for range requests
+        if response.status_code in [200, 206]:
             data = response.json()
-            return data if isinstance(data, list) else data.get('data', [])
+            results = data if isinstance(data, list) else data.get('data', [])
+            return results
+        # If still 416, it almost certainly means the "Upcoming" list is empty
+        elif response.status_code == 416:
+            print("ℹ️ Info: No upcoming tournaments found on Rematch (List is empty).")
+            return []
         else:
             print(f"❌ API Error: Status {response.status_code}")
-            print(f"🔍 Server Reason: {response.text}") 
+            print(f"🔍 Server Reason: {response.text}")
     except Exception as e:
         print(f"❌ Connection Crash: {e}")
     return []
