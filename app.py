@@ -6,13 +6,11 @@ import requests
 import pysmashgg
 from pysmashgg.api import run_query
 
-# Remove STATE as it's no longer used in the query
 TIMEZONE = os.environ["TIMEZONE"]
 GAME_ID = os.environ["GAME_ID"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 STARTGG_TOKEN = os.environ["STARTGG_TOKEN"]
 
-# Modified Query: Removed $state variable and addrState filter
 CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
     tournaments(query: {
         perPage: 32
@@ -27,116 +25,77 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
         nodes {
             id
             name
-            addrState
-            city
-            countryCode
-            createdAt
+            slug
             startAt
-            endAt
-            hasOfflineEvents
-            hasOnlineEvents
             images {
-                id
-                height
-                width
-                ratio
                 type
                 url
             }
-            isRegistrationOpen
-            numAttendees
-            primaryContact
-            primaryContactType
-            registrationClosesAt
-            slug
-            state
-            streams {
-                id
-                streamName
-            }
-            timezone
             venueAddress
-            venueName
+            primaryContact
         }
     }
 }"""
 
-def tournaments_filter(response, earliestTime: datetime, latestTime: datetime, useCreatedAt: bool):
+def tournaments_filter(response, start_time: datetime, end_time: datetime):
     if not response.get('data') or not response['data'].get('tournaments'):
         return []
-
-    nodes = response['data']['tournaments'].get('nodes')
-    if not nodes:
-        return []
-
-    tournaments = []
+    
+    nodes = response['data']['tournaments'].get('nodes', [])
+    found = []
+    
     for node in nodes:
-        checkDate = node["createdAt"] if useCreatedAt else node['startAt']
-        if earliestTime.timestamp() <= checkDate <= latestTime.timestamp():
-            tournaments.append(node)
-
-    tournaments.sort(key=lambda t: t["startAt"])
-    return tournaments
+        ts = node['startAt']
+        # Check if the tournament falls within our 7-day window
+        if start_time.timestamp() <= ts <= end_time.timestamp():
+            found.append(node)
+            
+    found.sort(key=lambda t: t["startAt"])
+    return found
 
 def make_embeds(tournament):
-    profile = None
-    banner = None
-    for image in tournament["images"]:
-        if image["type"] == 'profile':
-            profile = {"url": image["url"]}
-        if image["type"] == 'banner':
-            banner = {"url": image["url"]}
+    profile = next((img["url"] for img in tournament["images"] if img["type"] == 'profile'), None)
+    banner = next((img["url"] for img in tournament["images"] if img["type"] == 'banner'), None)
     
-    # Formats date based on your Berlin timezone
-    date = datetime.datetime.fromtimestamp(tournament["startAt"], tz=pytz.timezone(TIMEZONE)).strftime('%A, %B %d')
+    date_obj = datetime.datetime.fromtimestamp(tournament["startAt"], tz=pytz.timezone(TIMEZONE))
+    date_str = date_obj.strftime('%A, %B %d at %H:%M')
     
-    return [
-        {
-            "title": tournament["name"],
-            "url": f'https://start.gg/{tournament["slug"]}',
-            "color": 102204,
-            "description": f'📅 **Date:** {date}\n📍 **Location:** {tournament["venueAddress"] or "Online"}\n👤 **Contact:** {tournament["primaryContact"] or "N/A"}',
-            "thumbnail": profile,
-            "image": banner,
-            "footer": {"text": "Rematch Scout - Bulletproof Edition"},
-        }
-    ]
+    return [{
+        "title": tournament["name"],
+        "url": f'https://start.gg/{tournament["slug"]}',
+        "color": 102204,
+        "description": f'📅 **Match Date:** {date_str} (Berlin Time)\n📍 **Location:** {tournament["venueAddress"] or "Online"}\n👤 **Organizer:** {tournament["primaryContact"] or "N/A"}',
+        "thumbnail": {"url": profile} if profile else None,
+        "image": {"url": banner} if banner else None,
+        "footer": {"text": "7-Day Team Scout - System Online"},
+    }]
 
 def main():
     tz = pytz.timezone(TIMEZONE)
-    this_morning = datetime.datetime.combine(datetime.datetime.now(tz).date(), datetime.time(0, 0, tzinfo=tz), tzinfo=tz)
-    tomorrow = this_morning + datetime.timedelta(days=1)
-    overmorrow = this_morning + datetime.timedelta(days=2)
-    next_week = this_morning + datetime.timedelta(days=8)
+    now = datetime.datetime.now(tz)
+    # Start looking from right now up to 7 days in the future
+    seven_days_later = now + datetime.timedelta(days=7)
+
+    print(f"Scouting for Rematch from {now.date()} to {seven_days_later.date()}...")
 
     smash = pysmashgg.SmashGG(STARTGG_TOKEN, True)    
-    # Removed "state" from variables
     variables = {"page": 1, "videogameId": GAME_ID}
     
     response = run_query(CUSTOM_QUERY, variables, smash.header, smash.auto_retry)
-    
-    tournaments_tomorrow = tournaments_filter(response, tomorrow, overmorrow, False)
-    tournaments_created_recently = tournaments_filter(response, this_morning, tomorrow, True)
+    upcoming = tournaments_filter(response, now, seven_days_later)
 
-    # Post Events Tomorrow
-    for tournament in tournaments_tomorrow:
+    if not upcoming:
+        print("Scout Report: No tournaments found in the 7-day window.")
+        return
+
+    print(f"Found {len(upcoming)} tournaments! Sending to Discord...")
+    for t in upcoming:
         payload = {
-            "username": "Match Tomorrow!",
-            "embeds": make_embeds(tournament),
+            "username": "Weekly Tourney Scout",
+            "embeds": make_embeds(t),
         }
         requests.post(WEBHOOK_URL, json=payload)
-    
-    time.sleep(1)
-
-    # Post Recently Created Events
-    for tournament in tournaments_created_recently:
-        if tournament in tournaments_tomorrow:
-            continue
-        payload = {
-            "username": "New Tournament Discovered",
-            "embeds": make_embeds(tournament),
-        }
-        requests.post(WEBHOOK_URL, json=payload)
+        time.sleep(1) # Prevent rate-limiting
 
 if __name__ == "__main__":
     main()
