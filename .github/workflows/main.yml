@@ -1,40 +1,30 @@
-name: Discord Webhook
+name: Rematch Tourney Scout
 
-# 'on' is the trigger, in this case this Action will
-# be triggered using cron set at a 10 minutes interval.
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Allows you to run the bot manually anytime
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 9 * * *" # Runs daily at 09:00 UTC (approx. 10:00 AM German time)
 
-# 'jobs' are the routines, we only have
-# one when the instance is built.
 jobs:
   build:
-    # Our instance will use the latest available version of Ubuntu.
     runs-on: ubuntu-latest
 
-    # These steps are run in the same order as are defined.
     steps:
-      # actions checkout and python are pre-built actions
-      # that abstract commonly used tasks.
-      - uses: actions/checkout@v2
+      - name: Checkout Code
+        uses: actions/checkout@v4 # Upgraded to v4 for better performance
 
-      # The python action will set us a Python 3.8 (64-bit) instance.
       - name: Setting up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5 # Upgraded to v5
         with:
-          python-version: "3.8"
+          python-version: "3.11" # Modern Python version
           architecture: "x64"
 
-      # Use PIP to install the dependencies and then run the script.
-      - name: Running Script
-        # But first we read the WEBHOOK secret and create an
-        # environment variable with the same name.
+      - name: Running Scout Script
         env:
-          STATE: "NC"
-          TIMEZONE: "EST"
-          GAME_ID: 1386
+          # STATE is kept here just in case, but our new app.py ignores it
+          STATE: "DE" 
+          TIMEZONE: "Europe/Berlin"
+          GAME_ID: "89757"
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           STARTGG_TOKEN: ${{ secrets.STARTGG_TOKEN }}
         run: |
