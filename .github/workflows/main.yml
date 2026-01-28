@@ -26,11 +26,5 @@ jobs:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           STARTGG_TOKEN: ${{ secrets.STARTGG_TOKEN }}
         run: |
-          # 1. Install the library from requirements.txt
           pip install -r requirements.txt
-          
-          # 2. Use the installed library to download the browser
-          python -m playwright install --with-deps chromium
-          
-          # 3. Finally, run your script
           python app.py
