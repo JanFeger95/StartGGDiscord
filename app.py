@@ -2,80 +2,69 @@ import os
 import datetime
 import pytz
 import requests
-import pysmashgg
-from pysmashgg.api import run_query
 
-# Configuration from GitHub Secrets
+# 1. Configuration
 TIMEZONE = os.environ.get("TIMEZONE", "Europe/Berlin")
-GAME_ID = os.environ["GAME_ID"]
 WEBHOOK_URL = os.environ["WEBHOOK_URL"]
-STARTGG_TOKEN = os.environ["STARTGG_TOKEN"]
 CACHE_FILE = "posted_ids.txt"
 
-CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
-    tournaments(query: {
-        perPage: 32
-        page: $page
-        filter: { past: false, videogameIds: [$videogameId] }
-    }) {
-        nodes {
-            id
-            name
-            slug
-            startAt
-            images { type url }
-            venueAddress
-            primaryContact
-        }
-    }
-}"""
+# 2. Your Discovery URL (Upcoming Only)
+REMATCH_API_URL = "https://esports.playrematch.com/api/tournaments?statuses=pending&start_after_now=true&sort=scheduled_asc"
 
-def make_embeds(name, url, start_ts, location, contact, images):
-    profile = next((img["url"] for img in images if img["type"] == 'profile'), None)
-    banner = next((img["url"] for img in images if img["type"] == 'banner'), None)
-    
-    date_obj = datetime.datetime.fromtimestamp(start_ts, tz=pytz.timezone(TIMEZONE))
-    date_str = date_obj.strftime('%A, %B %d at %H:%M')
-    
-    return [{
-        "title": name,
-        "url": url,
-        "color": 102204,
-        "description": f"📅 **Date:** {date_str}\n📍 **Loc:** {location or 'Online'}\n👤 **Org:** {contact or 'N/A'}",
-        "thumbnail": {"url": profile} if profile else None,
-        "image": {"url": banner} if banner else None,
-        "footer": {"text": "Official start.gg Scout"},
-    }]
+def scout_rematch():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
+    try:
+        print("--- Rematch Official API Scout Starting ---")
+        response = requests.get(REMATCH_API_URL, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            # Most APIs wrap the list in a key like 'data' or 'results'
+            return data if isinstance(data, list) else data.get('data', [])
+        else:
+            print(f"❌ API Error: Status {response.status_code}")
+    except Exception as e:
+        print(f"❌ Connection Crash: {e}")
+    return []
 
 def main():
-    print("--- Starting start.gg Scout Session ---")
-    tz = pytz.timezone(TIMEZONE)
-    now = datetime.datetime.now(tz)
-    window = now + datetime.timedelta(days=7)
-
-    # State Management: Don't post duplicates
+    # 3. State Management (Avoid Duplicates)
     if not os.path.exists(CACHE_FILE): open(CACHE_FILE, 'w').close()
     with open(CACHE_FILE, "r") as f: posted_ids = f.read().splitlines()
 
-    try:
-        smash = pysmashgg.SmashGG(STARTGG_TOKEN, True)
-        response = run_query(CUSTOM_QUERY, {"page": 1, "videogameId": GAME_ID}, smash.header, smash.auto_retry)
-        nodes = response.get('data', {}).get('tournaments', {}).get('nodes', [])
-        
-        with open(CACHE_FILE, "a") as f:
-            for t in nodes:
-                t_id = str(t['id'])
-                if t_id not in posted_ids and now.timestamp() <= t['startAt'] <= window.timestamp():
-                    payload = {
-                        "username": "start.gg Scout", 
-                        "embeds": make_embeds(t['name'], f"https://start.gg/{t['slug']}", t['startAt'], t['venueAddress'], t['primaryContact'], t['images'])
-                    }
-                    requests.post(WEBHOOK_URL, json=payload)
+    tourneys = scout_rematch()
+    print(f"Found {len(tourneys)} potential upcoming tournaments.")
+
+    with open(CACHE_FILE, "a") as f:
+        for t in tourneys:
+            # Check the unique ID (usually 'id' or 'uuid')
+            t_id = str(t.get('id', t.get('uuid')))
+            
+            if t_id not in posted_ids:
+                name = t.get('name')
+                # Construct the direct link for players
+                link = f"https://esports.playrematch.com/tournaments/{t_id}"
+                
+                # Format the date nicely for Discord
+                raw_start = t.get('scheduled_at') # Check if this is the correct key in the JSON
+                
+                payload = {
+                    "username": "Rematch Intel",
+                    "embeds": [{
+                        "title": name,
+                        "url": link,
+                        "color": 3066993, # A clean blue color
+                        "description": f"🏆 **New Rematch Tournament!**\n📅 **Starts:** {raw_start if raw_start else 'Check Link'}",
+                        "footer": {"text": "PlayRematch Scout Activated"}
+                    }]
+                }
+                
+                res = requests.post(WEBHOOK_URL, json=payload)
+                if res.status_code == 204:
                     f.write(t_id + "\n")
-                    print(f"✅ Posted: {t['name']}")
-                    
-    except Exception as e:
-        print(f"❌ Error during scout: {e}")
+                    print(f"🚀 Posted to Discord: {name}")
 
 if __name__ == "__main__":
     main()
