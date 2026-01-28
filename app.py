@@ -30,6 +30,7 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
     }
 }"""
 
+from curl_cffi import requests as stealth_requests
 import urllib.parse
 
 def scout_battlefy():
@@ -43,32 +44,22 @@ def scout_battlefy():
 
     url = f"https://search.battlefy.com/tournament/homepage/rematch?&&start={start_str}&end={end_str}&showLadderTournaments=true&page=0"
     
-    # Enhanced Stealth Headers to bypass the 403 Forbidden error
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://battlefy.com/browse/rematch",
-        "Origin": "https://battlefy.com",
-        "Connection": "keep-alive"
-    }
-    
     try:
-        print(f"--- Battlefy Stealth Scout ---")
-        # Using a Session object can sometimes help maintain 'connection state'
-        session = requests.Session()
-        response = session.get(url, headers=headers, timeout=15)
+        print(f"--- Battlefy Stealth Scout (Browser Impersonation) ---")
+        # 'impersonate' tells the library to mimic Chrome's TLS handshake
+        response = stealth_requests.get(url, impersonate="chrome110", timeout=30)
         
         if response.status_code == 200:
-            results = response.json()
-            print(f"Success! Battlefy found {len(results)} items.")
+            data = response.json() # This will now work because we get real JSON
+            results = data if isinstance(data, list) else data.get('tournaments', [])
+            print(f"Success! Found {len(results)} items on Battlefy.")
             return results
-        elif response.status_code == 403:
-            print("Battlefy 403: Still blocked. Battlefy is detecting the GitHub IP.")
         else:
-            print(f"Battlefy Error: Status {response.status_code}")
+            print(f"Battlefy Error: {response.status_code}")
+            # Log the first 100 characters of the error page to see what's happening
+            print(f"Server Response: {response.text[:100]}")
     except Exception as e:
-        print(f"Battlefy Connection Crash: {e}")
+        print(f"Battlefy Critical Failure: {e}")
     return []
 
 def make_embeds(name, url, start_ts, location, contact, images):
