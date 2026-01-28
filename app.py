@@ -33,44 +33,40 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
 import urllib.parse
 
 def scout_battlefy():
-    # Use the internal ID we found in your Network logs - much more stable!
-    game_id = "688fb14665e8c2002b5f77cc"
-    
-    # Calculate dates: Start from yesterday to ensure we don't miss 'live' matches
     now = datetime.datetime.now(datetime.timezone.utc)
     start_date = now - datetime.timedelta(days=1)
     end_date = now + datetime.timedelta(days=10)
 
-    # Format the URL exactly like the working XHR request from your browser
     date_fmt = "%a %b %d %Y %H:%M:%S GMT+0000"
     start_str = urllib.parse.quote(start_date.strftime(date_fmt))
     end_str = urllib.parse.quote(end_date.strftime(date_fmt))
 
-    # We use 'page=0' to ensure we get the very first results
     url = f"https://search.battlefy.com/tournament/homepage/rematch?&&start={start_str}&end={end_str}&showLadderTournaments=true&page=0"
     
+    # Enhanced Stealth Headers to bypass the 403 Forbidden error
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://battlefy.com/browse/rematch"
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://battlefy.com/browse/rematch",
+        "Origin": "https://battlefy.com",
+        "Connection": "keep-alive"
     }
     
     try:
-        print(f"--- Battlefy Diagnostic ---")
-        print(f"Requesting URL: {url}")
-        response = requests.get(url, headers=headers)
+        print(f"--- Battlefy Stealth Scout ---")
+        # Using a Session object can sometimes help maintain 'connection state'
+        session = requests.Session()
+        response = session.get(url, headers=headers, timeout=15)
         
         if response.status_code == 200:
             results = response.json()
-            # Battlefy usually returns a direct list for this specific 'homepage' URL
-            print(f"Success! Battlefy found {len(results)} tournaments in the raw data.")
-            
-            # Print the names of found tournaments in the logs so we can see them
-            for item in results[:5]: 
-                print(f"Found in Pipe: {item.get('name')}")
-                
+            print(f"Success! Battlefy found {len(results)} items.")
             return results
+        elif response.status_code == 403:
+            print("Battlefy 403: Still blocked. Battlefy is detecting the GitHub IP.")
         else:
-            print(f"Battlefy Error: Received Status {response.status_code}")
+            print(f"Battlefy Error: Status {response.status_code}")
     except Exception as e:
         print(f"Battlefy Connection Crash: {e}")
     return []
