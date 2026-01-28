@@ -31,15 +31,33 @@ CUSTOM_QUERY = """query TournamentsByGame($page: Int!, $videogameId: ID!) {
 }"""
 
 def scout_battlefy():
-    url = "https://search.battlefy.com/tournament/homepage/rematch?&&type=&currentLadderEndTime=&showLadderTournaments=true&start=undefined&end=undefined&page=0"
+    # 1. Calculate the dynamic date range for the 7-day window
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # Start at the beginning of today, end 7 days from now
+    start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = start_date + datetime.timedelta(days=7)
+
+    # 2. Format dates exactly like Battlefy's XHR requirements
+    # Format: Tue Jan 27 2026 23:00:00 GMT+0000
+    date_format = "%a %b %d %Y %H:%M:%S GMT+0000"
+    start_str = urllib.parse.quote(start_date.strftime(date_format))
+    end_str = urllib.parse.quote(end_date.strftime(date_format))
+
+    # 3. Dynamic URL using the Game ID you found (page=0 for first results)
+    url = f"https://search.battlefy.com/tournament/homepage/rematch?&&type=&currentLadderEndTime=&showLadderTournaments=true&start={start_str}&end={end_str}&page=0"
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://battlefy.com/browse/rematch"
     }
+    
     try:
+        print(f"Scouting Battlefy: {start_date.date()} to {end_date.date()}...")
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            # Handle if Battlefy returns a list or a dictionary
+            return data if isinstance(data, list) else data.get('tournaments', [])
     except Exception as e:
         print(f"Battlefy Error: {e}")
     return []
