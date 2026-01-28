@@ -95,17 +95,25 @@ def main():
             for t in bfy_data:
                 t_id = str(t.get('_id'))
                 if t_id not in posted_ids:
-                    # Battlefy dates are usually ISO strings
+                    # Battlefy dates can be tricky; we'll parse and convert to UTC for clean comparison
                     start_dt = datetime.datetime.fromisoformat(t['startTime'].replace('Z', '+00:00'))
-                    if now.timestamp() <= start_dt.timestamp() <= window.timestamp():
+                    
+                    # RELAXED FILTER: Look for anything in the 7-day window
+                    # We remove the "now.timestamp() <=" check to ensure "same-day" matches aren't missed
+                    if start_dt.timestamp() <= window.timestamp():
                         slug = t['slug']
                         id_bfy = t['_id']
                         url = f"https://battlefy.com/tournaments/{slug}/{id_bfy}/info"
-                        payload = {"username": "Battlefy Scout", "embeds": make_embeds(t['name'], url, start_dt.timestamp(), "Online", t.get('organizationName'), [])}
+                        
+                        payload = {
+                            "username": "Battlefy Scout", 
+                            "embeds": make_embeds(t['name'], url, start_dt.timestamp(), "Online", t.get('organizationName'), [])
+                        }
                         requests.post(WEBHOOK_URL, json=payload)
                         f.write(t_id + "\n")
                         print(f"Posted Battlefy: {t['name']}")
-    except Exception as e: print(f"Battlefy Error: {e}")
+    except Exception as e: 
+        print(f"Battlefy Error: {e}")
 
     print("--- Session Finished ---")
 
